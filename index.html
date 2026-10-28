@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Mis gastos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root{
+    --bg:#edf0f5; --surface:#ffffff; --ink:#0f1b33; --muted:#5c6a82; --line:#d9dfe9;
+    --accent:#3047d4; --on-accent:#ffffff;
+    --accent-soft:rgba(48,71,212,.13); --accent-mid:rgba(48,71,212,.34);
+    --up:#c92a2a; --down:#0b7a5a;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0d1220; --surface:#151c2e; --ink:#e8ecf6; --muted:#91a0bb; --line:#243049;
+      --accent:#8aa0ff; --on-accent:#0d1220;
+      --accent-soft:rgba(138,160,255,.16); --accent-mid:rgba(138,160,255,.38);
+      --up:#ff8787; --down:#4ade9f;
+    }
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.5 'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif}
+  h1,h2,.big,.stats dd{font-family:'Bricolage Grotesque','DM Sans',system-ui,sans-serif}
+  h1{font-size:clamp(1.6rem,3vw,2rem);letter-spacing:-.02em;margin:0;font-weight:700;line-height:1.15}
+  h2{font-size:1.05rem;margin:0 0 14px;font-weight:600;letter-spacing:-.01em}
+  .muted{color:var(--muted)}
+  .wrap{max-width:1120px;margin:0 auto;padding:22px 16px 64px}
+
+  .banner{background:var(--accent-soft);color:var(--ink);padding:10px 16px;text-align:center;font-size:14px;border-bottom:1px solid var(--line)}
+  .banner code{background:var(--surface);padding:1px 6px;border-radius:6px;font-size:13px}
+
+  /* controles */
+  select,input,.btn{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;height:38px;padding:0 12px}
+  select{padding-right:6px}
+  .btn{cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+  .btn.ghost{background:transparent}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .top{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end;margin-bottom:18px}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .sel{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--muted)}
+
+  .errbox{background:color-mix(in srgb,var(--up) 12%,var(--surface));border:1px solid var(--up);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+  .errbox strong{display:block;margin-bottom:2px}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:28px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:28px}
+  .hero .label{margin:0;color:var(--muted)}
+  .big{font-size:clamp(2.8rem,7vw,4.4rem);font-weight:700;letter-spacing:-.04em;line-height:1;margin:8px 0 14px;font-variant-numeric:tabular-nums}
+  .chip{display:inline-block;border-radius:999px;padding:3px 11px;font-size:13px;font-weight:500}
+  .chip.up{color:var(--up);background:color-mix(in srgb,var(--up) 13%,transparent)}
+  .chip.down{color:var(--down);background:color-mix(in srgb,var(--down) 13%,transparent)}
+  .chip.flat{color:var(--muted);background:var(--accent-soft)}
+  .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:26px 0 0;padding-top:18px;border-top:1px solid var(--line)}
+  .stats dt{font-size:13px;color:var(--muted)}
+  .stats dd{margin:2px 0 0;font-size:1.2rem;font-weight:600;letter-spacing:-.02em;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+  .stats .sub{display:block;font:400 13px 'DM Sans',system-ui,sans-serif;color:var(--muted);letter-spacing:0}
+
+  .chart{position:relative;height:290px}
+  .chart.tall{height:100%;min-height:290px}
+  .empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);margin:0;padding:0 20px}
+
+  /* paneles */
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:16px;margin-top:16px}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .panel.fill{display:flex;flex-direction:column}
+  .panel.fill .chart{flex:1;min-height:300px;height:auto}
+  .rule{border:0;border-top:1px solid var(--line);margin:22px 0 18px}
+
+  .bars{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+  .bars li{display:grid;grid-template-columns:12px 1fr auto;column-gap:10px;row-gap:5px;align-items:center;padding:8px 10px;border-radius:10px}
+  .bars li.pick{cursor:pointer}
+  .bars li.pick:hover{background:var(--accent-soft)}
+  .bars li.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-mid)}
+  .bars .dot{width:10px;height:10px;border-radius:50%}
+  .bars .amt{font-variant-numeric:tabular-nums;font-weight:500}
+  .bars .track{grid-column:1/-1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+  .bars .track i{display:block;height:100%;border-radius:3px}
+
+  /* tabla */
+  .tablehead{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .tablehead h2{margin:0}
+  .tablehead input{min-width:min(260px,100%)}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th{font-weight:500;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}
+  td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tbody tr:hover td{background:var(--accent-soft)}
+  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.date{white-space:nowrap;color:var(--muted)}
+  .cat{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+  .cat i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .tablefoot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;color:var(--muted);font-size:14px}
+  .noresults{padding:26px 10px;text-align:center;color:var(--muted)}
+
+  /* login */
+  .login{min-height:100vh;display:grid;place-items:center;padding:20px}
+  .login-card{width:min(400px,100%);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:30px;display:grid;gap:14px}
+  .login-card label{display:grid;gap:5px;font-size:14px;color:var(--muted)}
+  .login-card input{height:42px;color:var(--ink)}
+  .login-card .btn{justify-content:center;height:42px}
+  .err{color:var(--up);margin:0;min-height:1.4em;font-size:14px}
+
+  @media (max-width:880px){
+    .hero{grid-template-columns:1fr;padding:22px;gap:22px}
+    .split{grid-template-columns:1fr}
+    .hide-sm{display:none}
+  }
+  .dot-sm{display:none;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+  @media (max-width:640px){
+    .hide-xs{display:none}
+    .dot-sm{display:inline-block}
+    th,td{padding-left:6px;padding-right:6px}
+  }
+  @media (max-width:520px){
+    .stats{grid-template-columns:1fr 1fr}
+    .controls{width:100%}
+    .controls .sel{flex:1 1 140px}
+    .controls .sel select{width:100%}
+  }
+</style>
+</head>
+<body>
+
+<div id="demoBanner" class="banner" hidden>
+  Estás viendo datos de ejemplo. Para ver tus gastos reales, pega tu llave publishable en <code>SUPABASE_KEY</code>, al inicio del script de este archivo.
+</div>
+
+<section id="login" class="login" hidden>
+  <form id="loginForm" class="login-card">
+    <div>
+      <h1>Mis gastos</h1>
+      <p class="muted" style="margin:6px 0 0">Entra con el correo y la contraseña del usuario que creaste en Supabase.</p>
+    </div>
+    <label>Correo
+      <input id="email" type="email" autocomplete="username" required>
+    </label>
+    <label>Contraseña
+      <input id="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn primary" type="submit">Entrar</button>
+    <p id="loginErr" class="err" role="alert"></p>
+  </form>
+</section>
+
+<main id="app" class="wrap" hidden>
+  <header class="top">
+    <div>
+      <h1>Mis gastos</h1>
+      <p id="subtitle" class="muted" style="margin:4px 0 0"></p>
+    </div>
+    <div class="controls">
+      <label class="sel">Periodo
+        <select id="monthSel"></select>
+      </label>
+      <label class="sel">Categoría
+        <select id="catSel"></select>
+      </label>
+      <button id="refreshBtn" class="btn" type="button">Actualizar</button>
+      <button id="logoutBtn" class="btn ghost" type="button">Salir</button>
+    </div>
+  </header>
+
+  <div id="errBox" class="errbox" hidden></div>
+
+  <section class="hero" aria-live="polite">
+    <div>
+      <p id="heroLabel" class="label"></p>
+      <div id="heroTotal" class="big">$0.00</div>
+      <div id="heroDelta"></div>
+      <dl id="stats" class="stats"></dl>
+    </div>
+    <div class="chart tall">
+      <canvas id="cCum" aria-label="Gasto acumulado"></canvas>
+      <p id="cumEmpty" class="empty" hidden>Todavía no hay gastos en este periodo.</p>
+    </div>
+  </section>
+
+  <section class="split">
+    <div class="panel">
+      <h2>Por categoría</h2>
+      <ul id="catList" class="bars"></ul>
+      <hr class="rule">
+      <h2>Por método de pago</h2>
+      <ul id="methodList" class="bars"></ul>
+    </div>
+    <div class="panel fill">
+      <h2>Últimos 12 meses</h2>
+      <div class="chart">
+        <canvas id="cMonths" aria-label="Gasto por mes"></canvas>
+        <p id="monthsEmpty" class="empty" hidden>Todavía no hay gastos para mostrar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="tablehead">
+      <h2>Movimientos</h2>
+      <input id="q" type="search" placeholder="Buscar en tus gastos" aria-label="Buscar gastos">
+    </div>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Nota</th>
+            <th class="hide-xs">Categoría</th>
+            <th class="hide-sm">Método</th>
+            <th class="num">Monto</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p id="noRows" class="noresults" hidden></p>
+    <div class="tablefoot">
+      <span id="tableInfo"></span>
+      <button id="moreBtn" class="btn" type="button" hidden>Mostrar más</button>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ============ CONFIGURACIÓN ============ */
+const CONFIG = {
+  SUPABASE_URL: "https://snyhichhbbsdzykrlxuz.supabase.co",
+  SUPABASE_KEY: "sb_publishable_H_MHfpCs6cjJ4QpHu_-BWQ_6vAvlxm8",   // la llave que empieza con sb_publishable_
+  TABLE: "gastos",
+  CURRENCY: "USD",
+  LOCALE: "en-US"
+};
+/* ======================================= */
+
+const DEMO = !CONFIG.SUPABASE_KEY || CONFIG.SUPABASE_KEY.startsWith("PEGA_");
+const PALETTE = ["#3b5bdb","#f08c00","#0ca678","#e03131","#7048e8","#1098ad","#d6336c","#868e96"];
+const $ = (s) => document.querySelector(s);
+const money  = new Intl.NumberFormat(CONFIG.LOCALE, {style:"currency", currency:CONFIG.CURRENCY});
+const money0 = new Intl.NumberFormat(CONFIG.LOCALE, {style:"currency", currency:CONFIG.CURRENCY, maximumFractionDigits:0});
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const pad = (n) => String(n).padStart(2, "0");
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const monthKey = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+const prevMonthKey = (k) => { const [y,m] = k.split("-").map(Number); return monthKey(new Date(y, m-2, 1)); };
+const daysIn = (k) => { const [y,m] = k.split("-").map(Number); return new Date(y, m, 0).getDate(); };
+const monthName = (k, style) => { const [y,m] = k.split("-").map(Number); return new Date(y, m-1, 1).toLocaleDateString("es", style==="short" ? {month:"short"} : {month:"long", year:"numeric"}); };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let sb = null, ALL = [], charts = {}, catColors = new Map(), loaded = false, firstDraw = true;
+const state = { month: "all", cat: "", q: "", shown: 30 };
+
+/* ---------- datos ---------- */
+const sum = (rows) => rows.reduce((a, r) => a + r.monto, 0);
+function groupSum(rows, key){
+  const m = new Map();
+  rows.forEach(r => m.set(r[key], (m.get(r[key]) || 0) + r.monto));
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+const normalize = (r) => ({
+  id: r.id, fecha: String(r.fecha), created_at: r.created_at || "",
+  descripcion: r.descripcion || "", monto: Number(r.monto) || 0,
+  categoria: r.categoria || "Sin categoría", metodo: r.metodo || "Sin dato"
+});
+
+async function fetchAll(){
+  const size = 1000; let from = 0, rows = [];
+  while (true){
+    const { data, error } = await sb.from(CONFIG.TABLE)
+      .select("id,fecha,descripcion,monto,categoria,metodo,created_at")
+      .order("fecha", {ascending:false}).order("created_at", {ascending:false})
+      .range(from, from + size - 1);
+    if (error) throw error;
+    rows = rows.concat(data);
+    if (data.length < size) break;
+    from += size;
+  }
+  return rows;
+}
+
+function demoData(){
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const cats = {
+    Comida:[["Supermercado",18,70],["Almuerzo",6,14],["Café",2,5]],
+    Transporte:[["Gasolina",15,35],["Uber",4,12],["Metro",1,2]],
+    Salidas:[["Nación Sushi",22,48],["Cine",8,14],["Bar",10,30]],
+    Ocio:[["Suscripción",5,16],["Videojuego",10,40]],
+    Otros:[["Farmacia",4,25],["Regalo",10,40]]
+  };
+  const pool = ["Comida","Comida","Comida","Transporte","Transporte","Salidas","Ocio","Otros"];
+  const metodos = ["Tarjeta","Tarjeta","Efectivo","Yappy","Transferencia"];
+  const out = []; const now = new Date();
+  for (let d = new Date(now.getFullYear(), now.getMonth()-5, 1); d <= now; d.setDate(d.getDate()+1)){
+    const n = rnd() < .18 ? 0 : 1 + Math.floor(rnd() * 2.4);
+    for (let i = 0; i < n; i++){
+      const c = pick(pool); const [desc, lo, hi] = pick(cats[c]);
+      out.push({ id:"d"+out.length, fecha:ymd(d), descripcion:desc, monto:Math.round((lo + rnd()*(hi-lo))*100)/100, categoria:c, metodo:pick(metodos), created_at:ymd(d)+"T12:00:00" });
+    }
+  }
+  return out.sort((a, b) => a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0);
+}
+
+/* ---------- filtros ---------- */
+const inCatRows   = () => ALL.filter(r => !state.cat || r.categoria === state.cat);
+const inMonthRows = () => ALL.filter(r => state.month === "all" || r.fecha.startsWith(state.month));
+const periodRows  = () => inCatRows().filter(r => state.month === "all" || r.fecha.startsWith(state.month));
+
+function populateFilters(){
+  const months = [...new Set(ALL.map(r => r.fecha.slice(0, 7)))];
+  const cur = monthKey(new Date());
+  if (!months.includes(cur)) months.push(cur);
+  months.sort().reverse();
+  $("#monthSel").innerHTML = `<option value="all">Todo el tiempo</option>` +
+    months.map(k => `<option value="${k}">${esc(cap(monthName(k)))}</option>`).join("");
+  const cats = [...new Set(ALL.map(r => r.categoria))].sort((a, b) => a.localeCompare(b, "es"));
+  $("#catSel").innerHTML = `<option value="">Todas</option>` +
+    cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  $("#monthSel").value = state.month;
+  $("#catSel").value = state.cat;
+}
+
+/* ---------- render ---------- */
+function render(){
+  Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
+  Chart.defaults.color = css("--muted");
+  Chart.defaults.borderColor = css("--line");
+  const inCat = inCatRows(), inMonth = inMonthRows(), period = periodRows();
+  renderHero(period, inCat);
+  renderCumulative(period, inCat);
+  renderCategories(inMonth);
+  renderMethods(period);
+  renderMonths(inCat);
+  renderTable(period);
+  firstDraw = false;
+}
+
+function renderHero(period, inCat){
+  const total = sum(period), n = period.length;
+  const now = new Date(), isCur = state.month === monthKey(now);
+  const where = state.month === "all" ? "en total" : `durante ${monthName(state.month)}`;
+  $("#heroLabel").textContent = state.cat ? `Gastado en ${state.cat} ${where}` : (state.month === "all" ? "Gastado en total" : `Gastado en ${monthName(state.month)}`);
+  $("#heroTotal").textContent = money.format(total);
+
+  let delta = "";
+  if (state.month !== "all"){
+    const prev = prevMonthKey(state.month);
+    const prevRows = inCat.filter(r => r.fecha.startsWith(prev) && (!isCur || Number(r.fecha.slice(8, 10)) <= now.getDate()));
+    const pt = sum(prevRows);
+    if (pt > 0){
+      const pct = (total - pt) / pt * 100;
+      const ref = isCur ? "que el mes pasado a esta altura" : "que el mes anterior";
+      if (Math.abs(pct) < 1) delta = `<span class="chip flat">Casi igual ${ref}</span>`;
+      else delta = `<span class="chip ${pct > 0 ? "up" : "down"}">${Math.abs(pct).toFixed(0)}% ${pct > 0 ? "más" : "menos"} ${ref}</span>`;
+    }
+  }
+  $("#heroDelta").innerHTML = delta;
+
+  let avgLabel, avg;
+  if (state.month === "all"){
+    const months = new Set(period.map(r => r.fecha.slice(0, 7))).size || 1;
+    avgLabel = "Promedio mensual"; avg = total / months;
+  } else {
+    avgLabel = "Promedio diario"; avg = total / (isCur ? now.getDate() : daysIn(state.month));
+  }
+  const topKey = state.cat ? "metodo" : "categoria";
+  const top = groupSum(period, topKey)[0];
+  $("#stats").innerHTML = `
+    <div><dt>Gastos</dt><dd>${n}</dd></div>
+    <div><dt>${avgLabel}</dt><dd>${money.format(avg)}</dd></div>
+    <div><dt>${state.cat ? "Método más usado" : "Categoría principal"}</dt><dd>${top ? esc(top[0]) + `<span class="sub">${money.format(top[1])}</span>` : "—"}</dd></div>`;
+}
+
+function makeChart(id, cfg){
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($("#" + id), cfg);
+}
+function toggleEmpty(canvasId, emptyId, hasData){
+  $("#" + canvasId).hidden = !hasData;
+  $("#" + emptyId).hidden = hasData;
+  if (!hasData && charts[canvasId]){ charts[canvasId].destroy(); delete charts[canvasId]; }
+}
+const anim = () => ({ duration: (firstDraw && !reduceMotion) ? 700 : 0 });
+
+function renderCumulative(period, inCat){
+  const hasData = period.length > 0;
+  toggleEmpty("cCum", "cumEmpty", hasData);
+  if (!hasData) return;
+  const accent = css("--accent"), soft = css("--accent-soft"), muted = css("--muted");
+  const common = {
+    maintainAspectRatio:false, animation:anim(),
+    interaction:{mode:"index", intersect:false},
+    scales:{ x:{grid:{display:false}, ticks:{maxTicksLimit:8}}, y:{beginAtZero:true, ticks:{callback:v => money0.format(v)}} }
+  };
+
+  if (state.month === "all"){
+    const totals = new Map();
+    period.forEach(r => { const k = r.fecha.slice(0, 7); totals.set(k, (totals.get(k) || 0) + r.monto); });
+    const keys = [...totals.keys()].sort();
+    const first = keys[0], last = keys[keys.length - 1];
+    const seq = []; let [y, m] = first.split("-").map(Number);
+    while (true){ const k = `${y}-${pad(m)}`; seq.push(k); if (k === last) break; m++; if (m > 12){ m = 1; y++; } }
+    let acc = 0; const data = seq.map(k => { acc += totals.get(k) || 0; return Math.round(acc * 100) / 100; });
+    makeChart("cCum", { type:"line",
+      data:{ labels:seq.map(k => cap(monthName(k, "short"))), datasets:[{ label:"Acumulado", data, borderColor:accent, backgroundColor:soft, fill:true, tension:.25, pointRadius:2, borderWidth:2.5 }] },
+      options:{ ...common, plugins:{ legend:{display:false}, tooltip:{callbacks:{ title:i => monthName(seq[i[0].dataIndex]), label:c => ` Acumulado: ${money.format(c.parsed.y)}` }} } } });
+    return;
+  }
+
+  const now = new Date(), isCur = state.month === monthKey(now);
+  const dim = daysIn(state.month);
+  const cum = (rows, len, upTo) => {
+    const v = Array(len).fill(0);
+    rows.forEach(r => { v[Number(r.fecha.slice(8, 10)) - 1] += r.monto; });
+    let acc = 0;
+    return v.map((x, i) => { acc += x; return (upTo != null && i + 1 > upTo) ? null : Math.round(acc * 100) / 100; });
+  };
+  const cur = cum(period, dim, isCur ? now.getDate() : dim);
+  const pk = prevMonthKey(state.month), pdim = daysIn(pk);
+  const prevSeries = cum(inCat.filter(r => r.fecha.startsWith(pk)), pdim, null);
+  while (prevSeries.length < dim) prevSeries.push(null);
+  const prev = prevSeries.slice(0, dim);
+  const labels = Array.from({length:dim}, (_, i) => String(i + 1));
+  const hasPrev = prev.some(v => v !== null && v > 0);
+  const datasets = [{ label:"Este mes", data:cur, borderColor:accent, backgroundColor:soft, fill:true, tension:.25, pointRadius:0, pointHoverRadius:4, borderWidth:2.5 }];
+  if (hasPrev) datasets.push({ label:"Mes anterior", data:prev, borderColor:muted, borderDash:[5, 4], fill:false, tension:.25, pointRadius:0, pointHoverRadius:3, borderWidth:1.5 });
+  makeChart("cCum", { type:"line", data:{ labels, datasets },
+    options:{ ...common, plugins:{
+      legend:{ display:hasPrev, align:"end", labels:{ usePointStyle:true, pointStyle:"line", boxWidth:24, padding:16 } },
+      tooltip:{ callbacks:{ title:i => "Día " + i[0].label, label:c => c.parsed.y == null ? null : ` ${c.dataset.label}: ${money.format(c.parsed.y)}` } }
+    } } });
+}
+
+function barList(el, entries, opts){
+  const max = entries.length ? entries[0][1] : 1;
+  if (!entries.length){ el.innerHTML = `<li class="muted" style="padding:8px 10px">Sin gastos en este periodo.</li>`; return; }
+  el.innerHTML = entries.map(([name, amt]) => {
+    const color = opts.color(name), selected = opts.selected && opts.selected(name);
+    return `<li class="${opts.pick ? "pick" : ""} ${selected ? "sel" : ""}" ${opts.pick ? `data-cat="${esc(name)}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}"` : ""}>
+      <span class="dot" style="background:${color}"></span><span>${esc(name)}</span><span class="amt">${money.format(amt)}</span>
+      <span class="track"><i style="width:${Math.max(2, amt / max * 100)}%;background:${color}"></i></span></li>`;
+  }).join("");
+}
+
+function renderCategories(inMonth){
+  barList($("#catList"), groupSum(inMonth, "categoria"), {
+    color: n => catColors.get(n) || PALETTE[7],
+    pick: true, selected: n => state.cat === n
+  });
+}
+function renderMethods(period){
+  barList($("#methodList"), groupSum(period, "metodo"), { color: () => css("--accent-mid") });
+}
+
+function renderMonths(inCat){
+  const totals = new Map();
+  inCat.forEach(r => { const k = r.fecha.slice(0, 7); totals.set(k, (totals.get(k) || 0) + r.monto); });
+  const base = new Date(), keys = [];
+  for (let i = 11; i >= 0; i--) keys.push(monthKey(new Date(base.getFullYear(), base.getMonth() - i, 1)));
+  const vals = keys.map(k => Math.round((totals.get(k) || 0) * 100) / 100);
+  const hasData = vals.some(v => v > 0);
+  toggleEmpty("cMonths", "monthsEmpty", hasData);
+  if (!hasData) return;
+  const accent = css("--accent"), mid = css("--accent-mid");
+  makeChart("cMonths", { type:"bar",
+    data:{ labels:keys.map(k => cap(monthName(k, "short"))), datasets:[{ data:vals, backgroundColor:keys.map(k => k === state.month ? accent : mid), borderRadius:5, maxBarThickness:34 }] },
+    options:{
+      maintainAspectRatio:false, animation:anim(),
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{ title:i => cap(monthName(keys[i[0].dataIndex])), label:c => " " + money.format(c.parsed.y) }} },
+      scales:{ x:{grid:{display:false}}, y:{beginAtZero:true, ticks:{callback:v => money0.format(v)}} },
+      onHover:(e, els) => { e.native.target.style.cursor = els.length && vals[els[0].index] > 0 ? "pointer" : "default"; },
+      onClick:(e, els) => {
+        if (!els.length) return;
+        const k = keys[els[0].index];
+        if (!(totals.get(k) > 0)) return;
+        state.month = k; state.shown = 30; $("#monthSel").value = k; render();
+      }
+    } });
+}
+
+function renderTable(period){
+  const q = state.q;
+  const rows = q ? period.filter(r => (r.descripcion + " " + r.categoria + " " + r.metodo).toLowerCase().includes(q)) : period;
+  const shown = rows.slice(0, state.shown);
+  $("#rows").innerHTML = shown.map(r => {
+    const [y, m, d] = r.fecha.split("-").map(Number);
+    const date = new Date(y, m - 1, d).toLocaleDateString("es", {day:"numeric", month:"short"});
+    const color = catColors.get(r.categoria) || PALETTE[7];
+    return `<tr>
+      <td class="date">${esc(date)}</td>
+      <td><span class="dot-sm" style="background:${color}" title="${esc(r.categoria)}"></span>${r.descripcion ? esc(r.descripcion) : '<span class="muted">Sin nota</span>'}</td>
+      <td class="hide-xs"><span class="cat"><i style="background:${color}"></i>${esc(r.categoria)}</span></td>
+      <td class="hide-sm">${esc(r.metodo)}</td>
+      <td class="num">${money.format(r.monto)}</td></tr>`;
+  }).join("");
+  const none = rows.length === 0;
+  $("#noRows").hidden = !none;
+  $("#noRows").textContent = ALL.length === 0
+    ? "Aún no hay gastos. Registra uno con el atajo de tu iPhone y aparecerá aquí."
+    : "Ningún gasto coincide con estos filtros.";
+  $("#tableInfo").textContent = none ? "" : `${shown.length} de ${rows.length} gastos, suman ${money.format(sum(rows))}`;
+  $("#moreBtn").hidden = rows.length <= shown.length;
+}
+
+/* ---------- carga ---------- */
+function showError(e){
+  const msg = (e && e.message) ? e.message : String(e);
+  let hint = "Revisa tu conexión y vuelve a intentar.";
+  if (/permission denied|row-level security|42501/i.test(msg)) hint = "Falta el permiso de lectura. Corre en Supabase el SQL del paso 1 (policy de select para usuarios autenticados).";
+  else if (/jwt|api key|apikey|invalid/i.test(msg)) hint = "Revisa que SUPABASE_KEY sea tu llave sb_publishable_ completa y sin espacios.";
+  else if (/relation .* does not exist|PGRST205/i.test(msg)) hint = "No encuentro la tabla. Revisa TABLE y SUPABASE_URL en la configuración.";
+  $("#errBox").innerHTML = `<strong>No se pudieron cargar los gastos</strong>${esc(msg)}<br><span class="muted">${esc(hint)}</span>`;
+  $("#errBox").hidden = false;
+}
+
+async function load(){
+  $("#subtitle").textContent = "Cargando…";
+  try {
+    ALL = (DEMO ? demoData() : await fetchAll()).map(normalize);
+    $("#errBox").hidden = true;
+  } catch (e) { $("#subtitle").textContent = ""; showError(e); return; }
+
+  catColors = new Map(groupSum(ALL, "categoria").map(([name], i) => [name, PALETTE[i % PALETTE.length]]));
+  const cur = monthKey(new Date());
+  const months = [...new Set(ALL.map(r => r.fecha.slice(0, 7)))].sort();
+  if (!months.includes(state.month) && state.month !== "all") state.month = "all";
+  if (firstDraw) state.month = months.includes(cur) ? cur : (months.length ? months[months.length - 1] : "all");
+  if (state.cat && !ALL.some(r => r.categoria === state.cat)) state.cat = "";
+  populateFilters();
+  render();
+  const t = new Date().toLocaleTimeString("es", {hour:"2-digit", minute:"2-digit"});
+  $("#subtitle").textContent = `${ALL.length} gastos registrados. Actualizado a las ${t}.`;
+}
+
+const showApp = () => { $("#login").hidden = true; $("#app").hidden = false; };
+const showLogin = () => { $("#app").hidden = true; $("#login").hidden = false; };
+
+function wire(){
+  $("#monthSel").addEventListener("change", e => { state.month = e.target.value; state.shown = 30; render(); });
+  $("#catSel").addEventListener("change", e => { state.cat = e.target.value; state.shown = 30; render(); });
+  $("#q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); state.shown = 30; renderTable(periodRows()); });
+  $("#moreBtn").addEventListener("click", () => { state.shown += 30; renderTable(periodRows()); });
+  $("#refreshBtn").addEventListener("click", () => load());
+  $("#logoutBtn").addEventListener("click", () => { if (sb) sb.auth.signOut(); });
+  const pickCat = (e) => {
+    const li = e.target.closest("[data-cat]"); if (!li) return;
+    if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    const c = li.dataset.cat;
+    state.cat = state.cat === c ? "" : c; state.shown = 30;
+    $("#catSel").value = state.cat; render();
+  };
+  $("#catList").addEventListener("click", pickCat);
+  $("#catList").addEventListener("keydown", pickCat);
+  $("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault(); $("#loginErr").textContent = "";
+    const { error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#password").value });
+    if (error) $("#loginErr").textContent = "No se pudo entrar: " + error.message;
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (ALL.length) render(); });
+}
+
+function boot(){
+  wire();
+  if (DEMO){
+    $("#demoBanner").hidden = false; $("#logoutBtn").hidden = true;
+    showApp(); load(); return;
+  }
+  if (typeof supabase === "undefined"){
+    showApp(); showError(new Error("No se pudo cargar la librería de Supabase (revisa tu conexión a internet).")); return;
+  }
+  sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session){
+      if (!loaded){ loaded = true; showApp(); setTimeout(load, 0); }
+    } else { loaded = false; firstDraw = true; showLogin(); }
+  });
+}
+boot();
+</script>
+</body>
+</html>
